@@ -1,0 +1,25 @@
+{
+  "name": "github-tutorial-data",
+  "version": "0.0.0",
+  "description": "Serves up information about the Github API",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm install && babel src --out-dir dist --copy-files",
+    "test": "jest --coverage",
+    "package": "npm run build && node-lambda package -A build -x \"src/* coverage/* test/* package-lock.json\""
+  },
+  "author": "Mike Solomon",
+  "license": "ISC",
+  "dependencies": {
+    "babel-polyfill": "^6.26.0",
+    "lodash": "^4.17.4",
+    "mysql": "^2.15.0"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.26.0",
+    "babel-plugin-transform-object-rest-spread": "^6.26.0",
+    "babel-preset-env": "^1.6.1",
+    "babel-preset-flow": "^6.23.0",
+    "node-lambda": "^0.11.5"
+  }
+}
