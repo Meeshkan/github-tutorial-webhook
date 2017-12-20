@@ -1,5 +1,5 @@
 {
-  "name": "github-tutorial-data",
+  "name": "github-tutorial-webhook",
   "version": "0.0.0",
   "description": "Serves up information about the Github API",
   "main": "index.js",
