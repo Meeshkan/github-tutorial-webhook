@@ -102,7 +102,9 @@ export default async (event, context, callback) => {
       _getNO(n, o + Math.floor(partition['train'] * parseInt(stats[0].repo_count)), Math.floor((partition['train'] + partition['validate']) * parseInt(stats[0].repo_count))) :
       which === 'test' ?
       _getNO(n, o + Math.floor((partition['train'] + partition['validate']) * parseInt(stats[0].repo_count)), parseInt(stats[0].repo_count)) :
-      (() => { throw new Error('which must be train, validate or test') })();
+      (() => {
+        throw new Error('which must be train, validate or test')
+      })();
     // get the target results
     const {
       n,
@@ -110,24 +112,29 @@ export default async (event, context, callback) => {
     } = getNO(parseInt(event.n || 100), parseInt(event.o || 0), datasetTripartite, whichDataset || 'train');
     // this is useful if we ever want to inspect one particular repo
     const targetResults = forcedId ? await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`, [n, o]);
-    // construct as a map for the target set with the repo id as the keys and the meeshkan-readable array as the values
-    const targetMap = _.fromPairs(targetResults.map(x => [x.id, [parseInt(targetThreshold) <= 0 ? normalize(parseInt(x[targetColumn]), parseInt(stats[0][`${targetColumn}_min`]), parseInt(stats[0][`${targetColumn}_max`])) : parseInt(x[targetColumn]) < parseInt(targetThreshold) ? 0 : 1]]));
-    // get the feature results
-    const featureResults = await sqlPromise(connection, `SELECT repo_id, author_name, author_email, committer_name, committer_email, author_date, committer_date, additions, deletions, test_additions, test_deletions FROM commits WHERE ${targetResults.map(x => 'repo_id = ?').join(' OR ')};`, targetResults.map(x => x.id));
-    // construct as a map for the feature set with the repo id as the keys and the meeshkan-readable array as the values
-    const featureMap = _.fromPairs(Object.values(_.groupBy(featureResults, x => x.repo_id)).map(x => x.sort((a, b) => parseInt(a.author_date) - parseInt(b.author_date)))
-      .map(group => group.slice(0, parseInt(maxCommits))).map(group => [group[0].repo_id, _.flatten(group.map((row, i) => [
-        ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))),
-        ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))),
-        normalize(parseInt(row.author_date), parseInt(stats[0].author_date_min), parseInt(stats[0].author_date_max)) || 0,
-        normalize(parseInt(row.committer_date), parseInt(stats[0].committer_date_min), parseInt(stats[0].committer_date_max)) || 0,
-        normalize(parseInt(row.additions), parseInt(stats[0].additions_min), parseInt(stats[0].additions_max)) || 0,
-        normalize(parseInt(row.deletions), parseInt(stats[0].deletions_min), parseInt(stats[0].deletions_max)) || 0,
-        normalize(parseInt(row.test_additions), parseInt(stats[0].test_additions_min), parseInt(stats[0].test_additions_max)) || 0,
-        normalize(parseInt(row.test_deletions), parseInt(stats[0].test_deletions_min), parseInt(stats[0].test_deletions_max)) || 0
-      ]).concat(new Array(Math.max(0, parseInt(maxCommits) - group.length)).fill(new Array(12).fill(0.0))))]));
-    // weaves the feature and target set together into something ingestible by meeshkan
-    callback(null, Object.keys(targetMap).map(key => [featureMap[key] || new Array(100 * (6 + event.authorHistory.split('_').length + event.committerHistory.split('_').length)).fill(0.0), targetMap[key]]));
+    if (targetResults.length === 0) {
+      // our offset is too high or our n is 0, so we just return nothing
+      callback(null, []);
+    } else {
+      // construct as a map for the target set with the repo id as the keys and the meeshkan-readable array as the values
+      const targetMap = _.fromPairs(targetResults.map(x => [x.id, [parseInt(targetThreshold) <= 0 ? normalize(parseInt(x[targetColumn]), parseInt(stats[0][`${targetColumn}_min`]), parseInt(stats[0][`${targetColumn}_max`])) : parseInt(x[targetColumn]) < parseInt(targetThreshold) ? 0 : 1]]));
+      // get the feature results
+      const featureResults = await sqlPromise(connection, `SELECT repo_id, author_name, author_email, committer_name, committer_email, author_date, committer_date, additions, deletions, test_additions, test_deletions FROM commits WHERE ${targetResults.map(x => 'repo_id = ?').join(' OR ')};`, targetResults.map(x => x.id));
+      // construct as a map for the feature set with the repo id as the keys and the meeshkan-readable array as the values
+      const featureMap = _.fromPairs(Object.values(_.groupBy(featureResults, x => x.repo_id)).map(x => x.sort((a, b) => parseInt(a.author_date) - parseInt(b.author_date)))
+        .map(group => group.slice(0, parseInt(maxCommits))).map(group => [group[0].repo_id, _.flatten(group.map((row, i) => [
+          ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))),
+          ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))),
+          normalize(parseInt(row.author_date), parseInt(stats[0].author_date_min), parseInt(stats[0].author_date_max)) || 0,
+          normalize(parseInt(row.committer_date), parseInt(stats[0].committer_date_min), parseInt(stats[0].committer_date_max)) || 0,
+          normalize(parseInt(row.additions), parseInt(stats[0].additions_min), parseInt(stats[0].additions_max)) || 0,
+          normalize(parseInt(row.deletions), parseInt(stats[0].deletions_min), parseInt(stats[0].deletions_max)) || 0,
+          normalize(parseInt(row.test_additions), parseInt(stats[0].test_additions_min), parseInt(stats[0].test_additions_max)) || 0,
+          normalize(parseInt(row.test_deletions), parseInt(stats[0].test_deletions_min), parseInt(stats[0].test_deletions_max)) || 0
+        ]).concat(new Array(Math.max(0, parseInt(maxCommits) - group.length)).fill(new Array(12).fill(0.0))))]));
+      // weaves the feature and target set together into something ingestible by meeshkan
+      callback(null, Object.keys(targetMap).map(key => [featureMap[key] || new Array(100 * (6 + event.authorHistory.split('_').length + event.committerHistory.split('_').length)).fill(0.0), targetMap[key]]));
+    }
   } catch (e) {
     console.error(e);
     callback(e);
