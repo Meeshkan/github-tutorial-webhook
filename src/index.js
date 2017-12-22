@@ -72,7 +72,7 @@ export default async (event, context, callback) => {
       stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, author_date_min, author_date_max, committer_date_min, committer_date_min, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, repo_count, commit_count FROM github_stats;');
     }
     // takes a value, a min, and a max and normalizes the value with 0 mean and range between -1 and 1
-    const normalize = (r, lo, hi) => (r - ((hi + lo) / 2)) / ((hi - lo) / 2);
+    const normalize = (r, lo, hi) => lo === hi ? 0 : (r - ((hi + lo) / 2)) / ((hi - lo) / 2);
     // functions that get a distinct value from an object
     const _distinct = $ => a => a[$];
     const distinctAuthorName = _distinct('author_name');
@@ -125,9 +125,8 @@ export default async (event, context, callback) => {
       // construct as a map for the feature set with the repo id as the keys and the meeshkan-readable array as the values
       const featureMap = _.fromPairs(Object.values(_.groupBy(featureResults, x => x.repo_id)).map(x => x.sort((a, b) => parseInt(a.author_date) - parseInt(b.author_date)))
         .map(group => group.slice(0, parseInt(maxCommits))).map(group => [group[0].repo_id, _.flatten(group.map((row, i) => [
-          // the null thing is a hack...basically, if i is 1, it spits out null...need to figure out why...
-          ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))).map(x => x === null ? -1 : x),
-          ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))).map(x => x === null ? -1 : x),
+          ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))),
+          ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))),
           normalize(parseInt(row.author_date), parseInt(stats[0].author_date_min), parseInt(stats[0].author_date_max)) || 0,
           normalize(parseInt(row.committer_date), parseInt(stats[0].committer_date_min), parseInt(stats[0].committer_date_max)) || 0,
           normalize(parseInt(row.additions), parseInt(stats[0].additions_min), parseInt(stats[0].additions_max)) || 0,
