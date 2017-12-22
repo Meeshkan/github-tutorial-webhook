@@ -83,7 +83,7 @@ export default async (event, context, callback) => {
     // based on function f for a range of rows i - n to i inclusive
     const distinctInGroup = (group, i, n, f) => _.uniqBy(group.slice(Math.max(0, i - n), i + 1), f).length;
     // used to split data into train, validate and test sets
-    const truncatedPartition = (datasetPartition || '50_25_25').split('_').slice(0, 3);
+    const truncatedPartition = (datasetPartition || '50_25_25').split('_').slice(0, 3).map(x => parseInt(x));
     const partitionSum = _.sum(truncatedPartition);
     const datasetTripartite = _.fromPairs(truncatedPartition.map((n, i) => [i === 0 ? 'train' : i === 1 ? 'validate' : 'test', n / partitionSum]));
     // function used to get n (number of datapoints) and o (offset in dataset)
@@ -112,10 +112,8 @@ export default async (event, context, callback) => {
       n,
       o
     } = getNO(parseInt(event.n || 100), parseInt(event.o || 0), datasetTripartite, whichDataset || 'train');
-    console.log("NO", n, o);
     // this is useful if we ever want to inspect one particular repo
     const targetResults = forcedId ? await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`, [n, o]);
-    console.log("targetResults", targetResults, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`);
     if (targetResults.length === 0) {
       // our offset is too high or our n is 0, so we just return nothing
       callback(null, []);
@@ -127,8 +125,9 @@ export default async (event, context, callback) => {
       // construct as a map for the feature set with the repo id as the keys and the meeshkan-readable array as the values
       const featureMap = _.fromPairs(Object.values(_.groupBy(featureResults, x => x.repo_id)).map(x => x.sort((a, b) => parseInt(a.author_date) - parseInt(b.author_date)))
         .map(group => group.slice(0, parseInt(maxCommits))).map(group => [group[0].repo_id, _.flatten(group.map((row, i) => [
-          ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))),
-          ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))),
+          // the null thing is a hack...basically, if i is 1, it spits out null...need to figure out why...
+          ...(event.authorHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctAuthorName), distinctInGroup(group, i, j, distinctAuthorEmail)), 1, j))).map(x => x === null ? -1 : x),
+          ...(event.committerHistory.split('_').map(j => parseInt(j)).map(j => normalize(Math.min(1, distinctInGroup(group, i, j, distinctCommitterName), distinctInGroup(group, i, j, distinctCommitterEmail)), 1, j))).map(x => x === null ? -1 : x),
           normalize(parseInt(row.author_date), parseInt(stats[0].author_date_min), parseInt(stats[0].author_date_max)) || 0,
           normalize(parseInt(row.committer_date), parseInt(stats[0].committer_date_min), parseInt(stats[0].committer_date_max)) || 0,
           normalize(parseInt(row.additions), parseInt(stats[0].additions_min), parseInt(stats[0].additions_max)) || 0,
