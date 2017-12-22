@@ -28,22 +28,23 @@ export default async (event, context, callback) => {
       targetThreshold,
       targetColumn,
       maxCommits,
-      refreshStats,
       forcedId,
       datasetPartition,
       whichDataset
     } = event;
-    const createStatsTable = c => sqlPromise(c, 'CREATE TABLE IF NOT EXISTS github_stats(id INT PRIMARY KEY, stargazers_count_min INT, stargazers_count_max INT, forks_count_min INT, forks_count_max INT, watchers_count_min INT, watchers_count_max INT, subscribers_count_min INT, subscribers_count_max INT, deletions_min INT, deletions_max INT, additions_min INT, additions_max INT, test_deletions_min INT, test_deletions_max INT, test_additions_min INT, test_additions_max INT, author_date_min BIGINT, author_date_max BIGINT, committer_date_min BIGINT, committer_date_max BIGINT, repo_count BIGINT);'); // create stats table
+    console.log("datasetPartition",datasetPartition,"whichDataset",whichDataset,"targetColumn",targetColumn,"targetThreshold",targetThreshold,"maxCommits",maxCommits,"refreshStats",refreshStats,"forcedId",forcedId,"n",event.n,"o",event.o);
+    const createStatsTable = c => sqlPromise(c, 'CREATE TABLE IF NOT EXISTS github_stats(id INT PRIMARY KEY, stargazers_count_min INT, stargazers_count_max INT, forks_count_min INT, forks_count_max INT, watchers_count_min INT, watchers_count_max INT, subscribers_count_min INT, subscribers_count_max INT, deletions_min INT, deletions_max INT, additions_min INT, additions_max INT, test_deletions_min INT, test_deletions_max INT, test_additions_min INT, test_additions_max INT, author_date_min BIGINT, author_date_max BIGINT, committer_date_min BIGINT, committer_date_max BIGINT, repo_count BIGINT, commit_count BIGINT);'); // create stats table
     await createStatsTable(connection);
-    let stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max FROM github_stats;');
-    if (stats.length === 0 || JSON.parse(refreshStats)) {
+    let stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, repo_count, commit_count FROM github_stats;');
+    const statsTest = await sqlPromise(connection, 'SELECT COUNT(*) AS commit_count FROM commits;');
+    if (stats.length === 0 || parseInt(stats[0].commit_count) !== parseInt(statsTest[0].commit_count)) {
       // generate the stats...takes a while
       await sqlPromise(connection, 'DROP TABLE IF EXISTS github_stats;')
       await createStatsTable(connection);
       const repoStats = await sqlPromise(connection, 'SELECT MIN(stargazers_count) AS stargazers_count_min, MAX(stargazers_count) AS stargazers_count_max, MIN(forks_count) AS forks_count_min, MAX(forks_count) AS forks_count_max, MIN(watchers_count) AS watchers_count_min, MAX(watchers_count) AS watchers_count_max, MIN(subscribers_count) AS subscribers_count_min, MAX(subscribers_count) AS subscribers_count_max, COUNT(*) AS repo_count FROM repos;');
-      const commitStats = await sqlPromise(connection, 'SELECT MIN(deletions) AS deletions_min, MAX(deletions) AS deletions_max, MIN(additions) AS additions_min, MAX(additions) AS additions_max, MIN(test_deletions) AS test_deletions_min, MAX(test_deletions) AS test_deletions_max, MIN(test_additions) AS test_additions_min, MAX(test_additions) AS test_additions_max FROM commits;');
+      const commitStats = await sqlPromise(connection, 'SELECT MIN(deletions) AS deletions_min, MAX(deletions) AS deletions_max, MIN(additions) AS additions_min, MAX(additions) AS additions_max, MIN(test_deletions) AS test_deletions_min, MAX(test_deletions) AS test_deletions_max, MIN(test_additions) AS test_additions_min, MAX(test_additions) AS test_additions_max, COUNT(*) AS commit_count FROM commits;');
       const now = new Date().getTime();
-      await sqlPromise(connection, `INSERT INTO github_stats (id, stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, repo_count, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, author_date_min, author_date_max, committer_date_min, committer_date_max) VALUES (0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE stargazers_count_min = ?, stargazers_count_max = ?, forks_count_min = ?, forks_count_max = ?, watchers_count_min = ?, watchers_count_max = ?, subscribers_count_min = ?, subscribers_count_max = ?, repo_count = ?, deletions_min = ?, deletions_max = ?, additions_min = ?, additions_max = ?, test_deletions_min = ?, test_deletions_max = ?, test_additions_min = ?, test_additions_max = ?, author_date_min = ?, author_date_max = ?, committer_date_min = ?, committer_date_max = ?;`,
+      await sqlPromise(connection, `INSERT INTO github_stats (id, stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, repo_count, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, author_date_min, author_date_max, committer_date_min, committer_date_max, commit_count) VALUES (0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE stargazers_count_min = ?, stargazers_count_max = ?, forks_count_min = ?, forks_count_max = ?, watchers_count_min = ?, watchers_count_max = ?, subscribers_count_min = ?, subscribers_count_max = ?, repo_count = ?, deletions_min = ?, deletions_max = ?, additions_min = ?, additions_max = ?, test_deletions_min = ?, test_deletions_max = ?, test_additions_min = ?, test_additions_max = ?, author_date_min = ?, author_date_max = ?, committer_date_min = ?, committer_date_max = ?, commit_count = ?;`,
         _.flatten(new Array(2).fill([
           repoStats[0].stargazers_count_min,
           repoStats[0].stargazers_count_max,
@@ -65,9 +66,10 @@ export default async (event, context, callback) => {
           new Date('2005-01-01T00:00:00Z').getTime(), // git was created in 2005, seems reasonable...
           now,
           new Date('2005-01-01T00:00:00Z').getTime(),
-          now
+          now,
+          commitStats[0].commit_count
         ])));
-      stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, author_date_min, author_date_max, committer_date_min, committer_date_min, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max FROM github_stats;');
+      stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, author_date_min, author_date_max, committer_date_min, committer_date_min, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, repo_count, commit_count FROM github_stats;');
     }
     // takes a value, a min, and a max and normalizes the value with 0 mean and range between -1 and 1
     const normalize = (r, lo, hi) => (r - ((hi + lo) / 2)) / ((hi - lo) / 2);
@@ -110,6 +112,7 @@ export default async (event, context, callback) => {
       n,
       o
     } = getNO(parseInt(event.n || 100), parseInt(event.o || 0), datasetTripartite, whichDataset || 'train');
+    console.log("SELECT", `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]);
     // this is useful if we ever want to inspect one particular repo
     const targetResults = forcedId ? await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`, [n, o]);
     if (targetResults.length === 0) {
