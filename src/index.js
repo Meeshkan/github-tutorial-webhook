@@ -32,7 +32,7 @@ export default async (event, context, callback) => {
       datasetPartition,
       whichDataset
     } = event;
-    console.log("datasetPartition",datasetPartition,"whichDataset",whichDataset,"targetColumn",targetColumn,"targetThreshold",targetThreshold,"maxCommits",maxCommits,"refreshStats",refreshStats,"forcedId",forcedId,"n",event.n,"o",event.o);
+    console.log("datasetPartition",datasetPartition,"whichDataset",whichDataset,"targetColumn",targetColumn,"targetThreshold",targetThreshold,"maxCommits",maxCommits,"forcedId",forcedId,"n",event.n,"o",event.o);
     const createStatsTable = c => sqlPromise(c, 'CREATE TABLE IF NOT EXISTS github_stats(id INT PRIMARY KEY, stargazers_count_min INT, stargazers_count_max INT, forks_count_min INT, forks_count_max INT, watchers_count_min INT, watchers_count_max INT, subscribers_count_min INT, subscribers_count_max INT, deletions_min INT, deletions_max INT, additions_min INT, additions_max INT, test_deletions_min INT, test_deletions_max INT, test_additions_min INT, test_additions_max INT, author_date_min BIGINT, author_date_max BIGINT, committer_date_min BIGINT, committer_date_max BIGINT, repo_count BIGINT, commit_count BIGINT);'); // create stats table
     await createStatsTable(connection);
     let stats = await sqlPromise(connection, 'SELECT stargazers_count_min, stargazers_count_max, forks_count_min, forks_count_max, watchers_count_min, watchers_count_max, subscribers_count_min, subscribers_count_max, deletions_min, deletions_max, additions_min, additions_max, test_deletions_min, test_deletions_max, test_additions_min, test_additions_max, repo_count, commit_count FROM github_stats;');
@@ -112,9 +112,10 @@ export default async (event, context, callback) => {
       n,
       o
     } = getNO(parseInt(event.n || 100), parseInt(event.o || 0), datasetTripartite, whichDataset || 'train');
-    console.log("SELECT", `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]);
+    console.log("NO", n, o);
     // this is useful if we ever want to inspect one particular repo
     const targetResults = forcedId ? await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`, [n, o]);
+    console.log("targetResults", targetResults, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`);
     if (targetResults.length === 0) {
       // our offset is too high or our n is 0, so we just return nothing
       callback(null, []);
