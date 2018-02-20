@@ -26,12 +26,12 @@ export default async (event, context, callback) => {
   try {
     const {
       targetThreshold,
-      targetColumn,
       maxCommits,
       forcedId,
       datasetPartition,
       whichDataset
     } = event;
+    const targetColumn = ['stargazers_count', 'forks_count', 'watchers_count', 'subscribers_count'].indexOf(event.targetColumn) !== -1 ? event.targetColumn : 'stargazers_count';
     console.log("datasetPartition",datasetPartition,"whichDataset",whichDataset,"targetColumn",targetColumn,"targetThreshold",targetThreshold,"maxCommits",maxCommits,"forcedId",forcedId,"n",event.n,"o",event.o);
     const createStatsTable = c => sqlPromise(c, 'CREATE TABLE IF NOT EXISTS github_stats(id INT PRIMARY KEY, stargazers_count_min INT, stargazers_count_max INT, forks_count_min INT, forks_count_max INT, watchers_count_min INT, watchers_count_max INT, subscribers_count_min INT, subscribers_count_max INT, deletions_min INT, deletions_max INT, additions_min INT, additions_max INT, test_deletions_min INT, test_deletions_max INT, test_additions_min INT, test_additions_max INT, author_date_min BIGINT, author_date_max BIGINT, committer_date_min BIGINT, committer_date_max BIGINT, repo_count BIGINT, commit_count BIGINT);'); // create stats table
     await createStatsTable(connection);
@@ -97,13 +97,14 @@ export default async (event, context, callback) => {
       n,
       o
     };
+    const repo_count_for_max_commits = sqlPromise(connection, 'SELECT COUNT(*) AS repo_count_for_max_commits FROM (SELECT COUNT(*) FROM commits GROUP BY repo_id HAVING COUNT(repo_id) > ?) AS foobar;',[maxCommits]).then(r => parseInt(r[0].repo_count_for_max_commits));
     // moves o to the correct position given the dataset we want (train, validate, test) and then calls _getNO
     const getNO = (n, o, partition, which) => which === 'train' ?
-      _getNO(n, o, Math.floor(partition['train'] * parseInt(stats[0].repo_count))) :
+      _getNO(n, o, Math.floor(partition['train'] * repo_count_for_max_commits)) :
       which === 'validate' ?
-      _getNO(n, o + Math.floor(partition['train'] * parseInt(stats[0].repo_count)), Math.floor((partition['train'] + partition['validate']) * parseInt(stats[0].repo_count))) :
+      _getNO(n, o + Math.floor(partition['train'] * repo_count_for_max_commits), Math.floor((partition['train'] + partition['validate']) * repo_count_for_max_commits)) :
       which === 'test' ?
-      _getNO(n, o + Math.floor((partition['train'] + partition['validate']) * parseInt(stats[0].repo_count)), parseInt(stats[0].repo_count)) :
+      _getNO(n, o + Math.floor((partition['train'] + partition['validate']) * repo_count_for_max_commits), repo_count_for_max_commits) :
       (() => {
         throw new Error('which must be train, validate or test')
       })();
@@ -113,13 +114,14 @@ export default async (event, context, callback) => {
       o
     } = getNO(parseInt(event.n || 100), parseInt(event.o || 0), datasetTripartite, whichDataset || 'train');
     // this is useful if we ever want to inspect one particular repo
-    const targetResults = forcedId ? await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT id, ${targetColumn} FROM repos ORDER BY id ASC LIMIT ? OFFSET ?;`, [n, o]);
+    const targetResults = forcedId ? await sqlPromise(connection, `SELECT repos.id, repos.${targetColumn} FROM repos WHERE id = ?;`, [parseInt(forcedId)]) : await sqlPromise(connection, `SELECT repos.id, repos.${targetColumn} FROM repos JOIN commits ON repos.id = commits.repo_id GROUP BY repos.id HAVING COUNT(repos.id) >= ? ORDER BY id ASC LIMIT ? OFFSET ?;`, [parseInt(maxCommits), n, o]);
     if (targetResults.length === 0) {
       // our offset is too high or our n is 0, so we just return nothing
       callback(null, []);
     } else {
+      const featuresPerCommit = 6 + event.authorHistory.split('_').length + event.committerHistory.split('_').length;
       // construct as a map for the target set with the repo id as the keys and the meeshkan-readable array as the values
-      const targetMap = _.fromPairs(targetResults.map(x => [x.id, [parseInt(targetThreshold) <= 0 ? normalize(parseInt(x[targetColumn]), parseInt(stats[0][`${targetColumn}_min`]), parseInt(stats[0][`${targetColumn}_max`])) : parseInt(x[targetColumn]) < parseInt(targetThreshold) ? 0 : 1]]));
+      const targetMap = _.fromPairs(targetResults.map(x => [x.id, parseInt(targetThreshold) <= 0 ? [normalize(parseInt(x[targetColumn]), parseInt(stats[0][`${targetColumn}_min`]), parseInt(stats[0][`${targetColumn}_max`]))] : parseInt(x[targetColumn]) < parseInt(targetThreshold) ? [0.0, 1.0] : [1.0, 0.0]]));
       // get the feature results
       const featureResults = await sqlPromise(connection, `SELECT repo_id, author_name, author_email, committer_name, committer_email, author_date, committer_date, additions, deletions, test_additions, test_deletions FROM commits WHERE ${targetResults.map(x => 'repo_id = ?').join(' OR ')};`, targetResults.map(x => x.id));
       // construct as a map for the feature set with the repo id as the keys and the meeshkan-readable array as the values
@@ -133,9 +135,9 @@ export default async (event, context, callback) => {
           normalize(parseInt(row.deletions), parseInt(stats[0].deletions_min), parseInt(stats[0].deletions_max)) || 0,
           normalize(parseInt(row.test_additions), parseInt(stats[0].test_additions_min), parseInt(stats[0].test_additions_max)) || 0,
           normalize(parseInt(row.test_deletions), parseInt(stats[0].test_deletions_min), parseInt(stats[0].test_deletions_max)) || 0
-        ]).concat(new Array(Math.max(0, parseInt(maxCommits) - group.length)).fill(new Array(12).fill(0.0))))]));
+        ]).concat(new Array(Math.max(0, parseInt(maxCommits) - group.length)).fill(new Array(featuresPerCommit).fill(0.0))))]));
       // weaves the feature and target set together into something ingestible by meeshkan
-      callback(null, Object.keys(targetMap).map(key => [featureMap[key] || new Array(100 * (6 + event.authorHistory.split('_').length + event.committerHistory.split('_').length)).fill(0.0), targetMap[key]]));
+      callback(null, Object.keys(targetMap).map(key => [featureMap[key] || new Array(parseInt(maxCommits) * featuresPerCommit).fill(0.0), targetMap[key]]));
     }
   } catch (e) {
     console.error(e);
